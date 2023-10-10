@@ -12,10 +12,18 @@ sb.ITEMS.ANDESITE = "minecraft:andesite"
 sb.ITEMS.COBBLESTONE = "minecraft:cobblestone"
 sb.ITEMS.COBBLESTONE_CHEST = "stonechest:chest_cobblestone"
 sb.ITEMS.COBBLESTONE_PART = "stonechest:part_cobblestone"
+sb.ITEMS.COGWHEEL = "create:cogwheel"
 sb.ITEMS.DIRT = "minecraft:dirt"
 sb.ITEMS.EMPTY_SLOT = "minecraft:air"
 sb.ITEMS.GRAVEL = "minecraft:gravel"
+sb.ITEMS.HAND_CRANK = "create:hand_crank"
+sb.ITEMS.MILLSTONE = "create:millstone"
+sb.ITEMS.OAK_BUTTON = "minecraft:oak_button"
+sb.ITEMS.OAK_LOG = "minecraft:oak_log"
+sb.ITEMS.OAK_PLANKS = "minecraft:oak_planks"
 sb.ITEMS.OAK_SAPLING = "minecraft:oak_sapling"
+sb.ITEMS.POLISHED_ANDESITE = "minecraft:polished_andesite"
+sb.ITEMS.RAW_IRON = "minecraft:raw_iron"
 sb.ITEMS.STONE_CROOK = "ftbsbc:stone_crook"
 sb.ITEMS.STONE_HAMMER = "ftbsbc:stone_hammer"
 sb.ITEMS.STONE_ROD = "ftbsbc:stone_rod"
@@ -57,6 +65,77 @@ function sb.load_recipes()
       _, _, _,
     },
     result = sb.ITEMS.COBBLESTONE_PART,
+    count = 1
+  }
+
+  a = sb.ITEMS.POLISHED_ANDESITE
+  b = sb.ITEMS.OAK_BUTTON
+  sb.RECIPES.COGWHEEL = {
+    grid = {
+      b, b, b,
+      b, a, b,
+      b, b, b,
+    },
+    result = sb.ITEMS.COGWHEEL,
+    count = 1
+  }
+
+  a = sb.ITEMS.POLISHED_ANDESITE
+  p = sb.ITEMS.OAK_PLANKS
+  r = sb.ITEMS.STONE_ROD
+  sb.RECIPES.HAND_CRANK = {
+    grid = {
+      _, r, _,
+      p, p, p,
+      _, _, a,
+    },
+    result = sb.ITEMS.HAND_CRANK,
+    count = 1
+  }
+
+  a = sb.ITEMS.POLISHED_ANDESITE
+  c = sb.ITEMS.COGWHEEL
+  p = sb.ITEMS.OAK_PLANKS
+  sb.RECIPES.MILLSTONE = {
+    grid = {
+      _, p, _,
+      a, c, a,
+      _, a, _,
+    },
+    result = sb.ITEMS.MILLSTONE,
+    count = 1
+  }
+
+  p = sb.ITEMS.OAK_PLANKS
+  sb.RECIPES.OAK_BUTTON = {
+    grid = {
+      p, _, _,
+      _, _, _,
+      _, _, _,
+    },
+    result = sb.ITEMS.OAK_BUTTON,
+    count = 1
+  }
+
+  l = sb.ITEMS.OAK_LOG
+  sb.RECIPES.OAK_PLANKS = {
+    grid = {
+      l, _, _,
+      _, _, _,
+      _, _, _,
+    },
+    result = sb.ITEMS.OAK_PLANKS,
+    count = 1
+  }
+
+  a = sb.ITEMS.ANDESITE
+  sb.RECIPES.POLISHED_ANDESITE = {
+    grid = {
+      a, a, _,
+      a, a, _,
+      _, _, _,
+    },
+    result = sb.ITEMS.POLISHED_ANDESITE,
     count = 1
   }
 
@@ -180,11 +259,14 @@ end
 
 -- moves the turtle to the specified position
 -- using the elevation column at 0, 0
+-- order is x[0] -> z[0] -> y -> z -> x
 function sb.move_to_ele(x, y, z)
   -- move to elevation column and adjust y level
   sb.move_to(0, y, 0)
-  -- move to correct x and z position
-  sb.move(x, 0, z)
+  -- move to correct z position
+  sb.move(0, 0, z)
+  -- move to correct x position
+  sb.move(x, 0, 0)
 end
 
 -- returns the turtle to the origin
@@ -323,8 +405,9 @@ function sb.craft_stone_chest()
   return true
 end
 
--- craft items as defined in a 3x3 grid
-function sb.craft(grid)
+-- craft items as defined by a recipe
+function sb.craft_basic(recipe)
+  local grid = recipe.grid
   local reqs = {}
   for _, v in ipairs(grid) do
     if v ~= sb.ITEMS.EMPTY_SLOT then
@@ -409,8 +492,34 @@ function sb.craft(grid)
   return result
 end
 
+-- get requirements and craft items as defined by a recipe
+function sb.craft(recipe)
+  local grid = recipe.grid
+
+  -- calculate required items
+  local reqs = {}
+  for _, v in ipairs(grid) do
+    if v ~= sb.ITEMS.EMPTY_SLOT then
+      if reqs[v] then
+        reqs[v] = reqs[v] + 1
+      else
+        reqs[v] = 1
+      end
+    end
+  end
+
+  sb.find_keep(reqs)
+
+  local result, err = sb.craft_basic(recipe)
+
+  return result, err
+end
+
 -- find and keep items requested
-function sb.find_keep(items)
+function sb.find_keep(items_to_keep)
+  local items = {}
+  for k, v in pairs(items_to_keep) do items[k] = v end
+
   sb.inv_clear()
 
   sb.move(1, 0, 0)
@@ -421,7 +530,16 @@ function sb.find_keep(items)
   end
 
   while turtle.suckDown() do
-    if items[sb.inv_what(1)] then
+    local found = sb.inv_what(1)
+    if items[found] and items[found] > 0 then
+      items[found] = items[found] - turtle.getItemCount(1)
+      if items[found] < 0 then
+        -- drop excess items
+        turtle.drop(-items[found])
+        items[found] = 0
+      end
+
+      -- move to next available slot
       local i = 2
       while not turtle.transferTo(i) and i < 16 do
         i = i + 1
@@ -429,11 +547,45 @@ function sb.find_keep(items)
     else
       turtle.drop()
     end
-
-    turtle.select(1)
   end
 
   sb.inv_organize()
+end
+
+-- harvests a tree
+function sb.harvest_tree()
+  sb.find_keep({
+    [sb.ITEMS.OAK_SAPLING] = 2,
+    [sb.ITEMS.DIRT] = 1,
+  })
+
+  sb.move_to_ele(0, -1, -1)
+  sb.inv_select(sb.ITEMS.DIRT)
+  turtle.place()
+  sb.move(0, 1, 0)
+  sb.inv_select(sb.ITEMS.OAK_SAPLING)
+  turtle.place()
+
+  -- wait for tree to grow
+  local _, inspect = turtle.inspect()
+  while inspect.name ~= "minecraft:oak_log" do
+    _, inspect = turtle.inspect()
+  end
+
+  -- wait for new oak sapling
+  while not sb.inv_has(sb.ITEMS.OAK_SAPLING) do end
+
+  -- chop down tree
+  -- up to 8 log blocks
+  sb.move(0, 0, 1)
+  _, inspect = turtle.inspectUp()
+  while inspect.name == "minecraft:oak_log" do
+    sb.move(0, 1, 0)
+    _, inspect = turtle.inspectUp()
+  end
+
+  -- grab remaining dirt block
+  sb.move_to_ele(0, -1, 0)
 end
 
 -- displays the start message
@@ -483,17 +635,17 @@ function sb.phases.stone_crook_hammer()
   print("Phase: stone_crook_hammer")
 
   -- crafting a stone crook and hammer
-  sb.craft(sb.RECIPES.STONE_ROD.grid)   -- x2
+  sb.craft_basic(sb.RECIPES.STONE_ROD)   -- x2
   sb.suck()
-  sb.craft(sb.RECIPES.STONE_ROD.grid)   -- x2
+  sb.craft_basic(sb.RECIPES.STONE_ROD)   -- x2
   sb.suck()
-  sb.craft(sb.RECIPES.STONE_ROD.grid)   -- x2
+  sb.craft_basic(sb.RECIPES.STONE_ROD)   -- x2
   sb.suck()
-  sb.craft(sb.RECIPES.STONE_ROD.grid)   -- x2
+  sb.craft_basic(sb.RECIPES.STONE_ROD)   -- x2
   sb.suck()
-  sb.craft(sb.RECIPES.STONE_CROOK.grid) -- x1
+  sb.craft_basic(sb.RECIPES.STONE_CROOK) -- x1
   sb.suck()
-  sb.craft(sb.RECIPES.STONE_HAMMER.grid) -- x1
+  sb.craft_basic(sb.RECIPES.STONE_HAMMER) -- x1
   sb.suck()
 end
 
@@ -560,25 +712,25 @@ end
 function sb.phases.filter_setup()
   print("Phase: filter_setup")
 
-  sb.craft(sb.RECIPES.COBBLESTONE_PART.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_PART)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_PART.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_PART)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_PART.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_PART)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_PART.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_PART)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_PART.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_PART)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_PART.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_PART)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_PART.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_PART)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_PART.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_PART)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_CHEST.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_CHEST)
   sb.suck()
-  sb.craft(sb.RECIPES.COBBLESTONE_CHEST.grid)
+  sb.craft_basic(sb.RECIPES.COBBLESTONE_CHEST)
   sb.suck()
 
   sb.move_to_ele(1, -1, 0)
@@ -592,44 +744,138 @@ function sb.phases.filter_setup()
   sb.inv_clear()
 end
 
--- harvests first tree
-function sb.phases.first_tree()
+-- harvests the first trees
+function sb.phases.first_trees()
+  -- harvest 4 trees for a minimum of 16 oak logs
+  sb.harvest_tree()
+  sb.harvest_tree()
+  sb.harvest_tree()
+  sb.harvest_tree()
+end
+
+-- crafts and sets up a millstone
+function sb.phases.millstone_setup()
+  -- -8 andesite
+  -- +8 polished andesite
+  sb.craft(sb.RECIPES.POLISHED_ANDESITE)
+  sb.craft(sb.RECIPES.POLISHED_ANDESITE)
+
+  -- -5 logs
+  -- +20 oak planks
+  sb.craft(sb.RECIPES.OAK_PLANKS)
+  sb.craft(sb.RECIPES.OAK_PLANKS)
+  sb.craft(sb.RECIPES.OAK_PLANKS)
+  sb.craft(sb.RECIPES.OAK_PLANKS)
+  sb.craft(sb.RECIPES.OAK_PLANKS)
+
+  -- -16 oak planks
+  -- +16 oak buttons
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+  sb.craft(sb.RECIPES.OAK_BUTTON)
+
+  -- -16 oak buttons
+  -- -2 polished andesite
+  -- +2 cogwheel
+  sb.craft(sb.RECIPES.COGWHEEL)
+  sb.craft(sb.RECIPES.COGWHEEL)
+
+  -- -1 stone rod
+  -- -3 oak planks
+  -- -1 polished andesite
+  sb.craft(sb.RECIPES.HAND_CRANK)
+
+  -- -1 oak planks
+  -- -1 cogwheel
+  -- -3 polished andesite
+  sb.craft(sb.RECIPES.MILLSTONE)
+
+  -- place milling setup
   sb.find_keep({
-    [sb.ITEMS.OAK_SAPLING] = true,
-    [sb.ITEMS.DIRT] = true,
+    [sb.ITEMS.MILLSTONE] = 1,
+    [sb.ITEMS.COGWHEEL] = 1,
+    [sb.ITEMS.HAND_CRANK] = 1,
+  })
+  sb.move_to_ele(2, 0, 0)
+
+  -- place cogwheel
+  sb.move(0, 0, 2)
+  turtle.select(1)
+  turtle.digDown()
+  sb.inv_select(sb.ITEMS.COGWHEEL)
+  turtle.placeDown()
+
+  -- place hand crank
+  sb.move(0, 0, -1)
+  sb.inv_select(sb.ITEMS.HAND_CRANK)
+  turtle.place()
+
+  -- place millstone
+  turtle.select(1)
+  turtle.digDown()
+  sb.inv_select(sb.ITEMS.MILLSTONE)
+  turtle.placeDown()
+
+  sb.move_origin()
+end
+
+function sb.phases.first_iron()
+  sb.find_keep({
+    [sb.ITEMS.COBBLESTONE] = 64,
   })
 
-  sb.move_to_ele(0, -1, -1)
-  sb.inv_select(sb.ITEMS.DIRT)
-  turtle.place()
-  sb.move(0, 1, 0)
-  sb.inv_select(sb.ITEMS.OAK_SAPLING)
-  turtle.place()
+  sb.move_to_ele(2, -1, 0)
 
-  -- wait for tree to grow
-  local _, inspect = turtle.inspect()
-  while inspect.name ~= "minecraft:oak_log" do
-    _, inspect = turtle.inspect()
+  sb.inv_select(sb.ITEMS.COBBLESTONE)
+  turtle.placeUp()
+
+  turtle.select(1)
+  local suck_up = turtle.suckUp()
+
+  -- mill gravel until raw iron is obtained
+  while sb.inv_count(sb.ITEMS.RAW_IRON) < 10 do
+    while not suck_up do suck_up = turtle.suckUp() end
+    while suck_up do suck_up = turtle.suckUp() end
+
+    -- place cobble to become gravel
+    -- sb.move_to_ele(0, -2, 0)
+
+    sb.inv_select(sb.ITEMS.GRAVEL)
+    turtle.drop()
+
+    sb.inv_select(sb.ITEMS.COBBLESTONE)
+    turtle.placeUp()
+
+    turtle.select(1)
+    local suck_forward = turtle.suck()
+    while not suck_forward and not suck_up do
+      suck_forward = turtle.suck()
+      suck_up = turtle.suckUp()
+    end
+    while suck_forward do suck_forward = turtle.suck() end
   end
 
-  -- wait for new oak sapling
-  while not sb.inv_has(sb.ITEMS.OAK_SAPLING) do end
-
-  -- chop down tree
-  -- up to 8 log blocks
-  sb.move(0, 0, 1)
-  _, inspect = turtle.inspectUp()
-  while inspect.name == "minecraft:oak_log" do
-    sb.move(0, 1, 0)
-    _, inspect = turtle.inspectUp()
-  end
+  turtle.digUp()
+  sb.move_origin()
 end
 
 -- next phase
 function sb.phases.test_phase()
   print("*** OBTAIN IRON ***")
 
-  
 end
 
 term.clear()
@@ -641,7 +887,9 @@ term.setCursorPos(1, 1)
 -- sb.phases.stone_crook_hammer()
 -- sb.phases.oak_sapling()
 -- sb.phases.filter_setup()
--- sb.phases.first_tree()
+-- sb.phases.first_trees()
+-- sb.phases.millstone_setup()
+-- sb.phases.first_iron()
 
 local status, err = pcall(sb.phases.test_phase)
 if not status then
